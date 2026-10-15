@@ -1,0 +1,53 @@
+@baseUrl = http://localhost:8080
+@numeroCartao = 6549873025634501
+@numeroInexistente = 0000000000000999
+@senha = 1234
+
+### Criar cartão — 201 com um número ainda não cadastrado
+POST {{baseUrl}}/cartoes
+Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+Content-Type: application/json
+
+{
+  "numeroCartao": "{{numeroCartao}}",
+  "senha": "{{senha}}"
+}
+
+### Consultar saldo — 200 com 500.00 após a criação
+GET {{baseUrl}}/cartoes/{{numeroCartao}}
+Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+
+### Duplicado — 422 com os dados desta tentativa
+POST {{baseUrl}}/cartoes
+Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+Content-Type: application/json
+
+{
+  "numeroCartao": "{{numeroCartao}}",
+  "senha": "outra senha"
+}
+
+### Conferir que a duplicidade não alterou o saldo
+GET {{baseUrl}}/cartoes/{{numeroCartao}}
+Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+
+### Cartão inexistente — 404 sem corpo
+GET {{baseUrl}}/cartoes/{{numeroInexistente}}
+Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+
+### Sem autenticação — 401
+GET {{baseUrl}}/cartoes/{{numeroCartao}}
+
+### Credenciais incorretas — 401
+GET {{baseUrl}}/cartoes/{{numeroCartao}}
+Authorization: Basic username errada
+
+### Entrada inválida — 400
+POST {{baseUrl}}/cartoes
+Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+Content-Type: application/json
+
+{
+  "numeroCartao": "123",
+  "senha": "1234"
+}
