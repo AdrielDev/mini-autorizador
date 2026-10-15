@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.transaction.TransactionException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -22,7 +23,8 @@ public class ApiExceptionHandler {
       MethodArgumentNotValidException.class,
       HttpMessageNotReadableException.class,
       HandlerMethodValidationException.class,
-      ConstraintViolationException.class
+      ConstraintViolationException.class,
+      EntradaInvalidaException.class
   })
   public ResponseEntity<ApiErro> entradaInvalida() {
     return ResponseEntity.badRequest()
@@ -31,9 +33,12 @@ public class ApiExceptionHandler {
             "Verifique os campos enviados."));
   }
 
-  @ExceptionHandler(DataAccessException.class)
+  @ExceptionHandler({
+      DataAccessException.class,
+      TransactionException.class
+  })
   public ResponseEntity<ApiErro> persistenciaIndisponivel(
-      DataAccessException exception) {
+      RuntimeException exception) {
 
     LOGGER.error(
         "Falha de persistência. Tipo: {}",

@@ -51,3 +51,34 @@ Content-Type: application/json
   "numeroCartao": "123",
   "senha": "1234"
 }
+
+### Comprar — 201 e texto OK; saldo passa para 495.15
+POST {{baseUrl}}/transacoes
+Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+Content-Type: application/json
+
+{"numeroCartao":"{{numeroCartao}}","senhaCartao":"{{senha}}","valor":4.85}
+
+### Saldo insuficiente — 422 e SALDO_INSUFICIENTE
+POST {{baseUrl}}/transacoes
+Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+Content-Type: application/json
+
+{"numeroCartao":"{{numeroCartao}}","senhaCartao":"{{senha}}","valor":9999}
+
+### Senha incorreta — 422 e SENHA_INVALIDA
+POST {{baseUrl}}/transacoes
+Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+Content-Type: application/json
+
+{"numeroCartao":"{{numeroCartao}}","senhaCartao":"errada","valor":1}
+
+### Não autenticado — 401
+GET {{baseUrl}}/cartoes/{{numeroCartao}}
+
+### Fração de centavo — 400, sem débito
+POST {{baseUrl}}/transacoes
+Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+Content-Type: application/json
+
+{"numeroCartao":"{{numeroCartao}}","senhaCartao":"{{senha}}","valor":10.001}

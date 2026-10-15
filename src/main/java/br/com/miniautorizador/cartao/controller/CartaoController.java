@@ -3,7 +3,6 @@ package br.com.miniautorizador.cartao.controller;
 import br.com.miniautorizador.cartao.dto.CartaoResponse;
 import br.com.miniautorizador.cartao.dto.CriarCartaoRequest;
 import br.com.miniautorizador.cartao.service.CartaoService;
-import br.com.miniautorizador.cartao.service.ResultadoCriacao;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;

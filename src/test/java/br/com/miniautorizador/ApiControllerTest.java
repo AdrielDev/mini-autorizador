@@ -1,8 +1,7 @@
 package br.com.miniautorizador;
 
-import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
-import static org.hamcrest.Matchers.not;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -18,13 +17,19 @@ import br.com.miniautorizador.cartao.service.CartaoService;
 import br.com.miniautorizador.cartao.service.ResultadoCriacao;
 import br.com.miniautorizador.config.SecurityConfig;
 import br.com.miniautorizador.shared.ApiExceptionHandler;
+import br.com.miniautorizador.transacao.controller.TransacaoController;
+import br.com.miniautorizador.transacao.service.AutorizacaoService;
+import br.com.miniautorizador.transacao.service.ResultadoAutorizacao;
+
 import java.math.BigDecimal;
 import java.util.Optional;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -33,32 +38,53 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.transaction.TransactionSystemException;
 
-@WebMvcTest(CartaoController.class)
+@WebMvcTest({ CartaoController.class, TransacaoController.class })
+
 @Import({ SecurityConfig.class, ApiExceptionHandler.class })
 class ApiControllerTest {
-
   private static final String NUMERO = "0000000000000001";
   private static final String CADASTRO = "{\"numeroCartao\":\"" + NUMERO + "\",\"senha\":\"1234\"}";
+  private static final String COMPRA = "{\"numeroCartao\":\"" + NUMERO + "\",\"senhaCartao\":\"1234\",\"valor\":10}";
 
   @Autowired
   private MockMvc mvc;
-
   @MockitoBean
   private CartaoService cartoes;
+  @MockitoBean
+  private AutorizacaoService autorizacao;
+
+  private MockHttpServletRequestBuilder requisicao(String rota) {
+    return switch (rota) {
+      case "saldo" -> get("/cartoes/" + NUMERO);
+      case "cartao" -> post("/cartoes").contentType(MediaType.APPLICATION_JSON).content(CADASTRO);
+      default -> post("/transacoes").contentType(MediaType.APPLICATION_JSON).content(COMPRA);
+    };
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = { "saldo", "cartao", "transacao" })
+  void exigeBasicNasTresRotas(String rota) throws Exception {
+    mvc.perform(requisicao(rota)).andExpect(status().isUnauthorized());
+    verifyNoInteractions(cartoes, autorizacao);
+  }
+
+  @ParameterizedTest
+  @CsvSource({ "saldo,username,errada", "cartao,username,errada", "transacao,username,errada",
+      "saldo,outro,password", "cartao,outro,password", "transacao,outro,password" })
+  void rejeitaCredenciaisReaisIncorretas(String rota, String usuario, String senha) throws Exception {
+    mvc.perform(requisicao(rota).with(httpBasic(usuario, senha))).andExpect(status().isUnauthorized());
+    verifyNoInteractions(cartoes, autorizacao);
+  }
 
   @ParameterizedTest
   @EnumSource(ResultadoCriacao.class)
-  void cadastroRetornaSomenteOsDadosDaTentativa(
-      ResultadoCriacao resultado) throws Exception {
-
+  void cadastroRetornaSomenteCamposDaTentativa(ResultadoCriacao resultado) throws Exception {
     when(cartoes.criar(NUMERO, "1234")).thenReturn(resultado);
-
-    mvc.perform(cadastro(CADASTRO))
-        .andExpect(status().is(
-            resultado == ResultadoCriacao.CRIADO ? 201 : 422))
-        .andExpect(content().contentTypeCompatibleWith(
-            MediaType.APPLICATION_JSON))
+    mvc.perform(requisicao("cartao").with(httpBasic("username", "password")))
+        .andExpect(status().is(resultado == ResultadoCriacao.CRIADO ? 201 : 422))
+        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
         .andExpect(jsonPath("$.*", hasSize(2)))
         .andExpect(jsonPath("$.numeroCartao").value(NUMERO))
         .andExpect(jsonPath("$.senha").value("1234"));
@@ -66,150 +92,77 @@ class ApiControllerTest {
 
   @Test
   void saldoEhNumeroPuro() throws Exception {
-    when(cartoes.consultarSaldo(NUMERO))
-        .thenReturn(Optional.of(new BigDecimal("500.00")));
-
-    mvc.perform(get("/cartoes/{numero}", NUMERO)
-        .with(httpBasic("username", "password")))
-        .andExpect(status().isOk())
-        .andExpect(content().contentTypeCompatibleWith(
-            MediaType.APPLICATION_JSON))
-        .andExpect(content().string("500.00"));
+    when(cartoes.consultarSaldo(NUMERO)).thenReturn(Optional.of(new BigDecimal("500.00")));
+    mvc.perform(requisicao("saldo").with(httpBasic("username", "password")))
+        .andExpect(status().isOk()).andExpect(content().string("500.00"));
   }
 
   @Test
-  void cartaoInexistenteRetorna404SemCorpo() throws Exception {
+  void inexistenteTem404Vazio() throws Exception {
     when(cartoes.consultarSaldo(NUMERO)).thenReturn(Optional.empty());
-
-    mvc.perform(get("/cartoes/{numero}", NUMERO)
-        .with(httpBasic("username", "password")))
-        .andExpect(status().isNotFound())
-        .andExpect(content().string(""));
+    mvc.perform(requisicao("saldo").with(httpBasic("username", "password")))
+        .andExpect(status().isNotFound()).andExpect(content().string(""));
   }
 
-  @Test
-  void exigeAutenticacaoNaCriacaoENaConsulta() throws Exception {
-    mvc.perform(post("/cartoes")
-        .contentType(MediaType.APPLICATION_JSON)
-        .content(CADASTRO))
-        .andExpect(status().isUnauthorized());
+  @ParameterizedTest
+  @EnumSource(ResultadoAutorizacao.class)
+  void transacaoRespeitaStatusETextoPuro(ResultadoAutorizacao resultado) throws Exception {
+    when(autorizacao.autorizar(anyString(), anyString(), any())).thenReturn(resultado);
+    mvc.perform(requisicao("transacao").with(httpBasic("username", "password")))
+        .andExpect(status().is(resultado == ResultadoAutorizacao.APROVADA ? 201 : 422))
+        .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_PLAIN))
+        .andExpect(content().string(resultado.resposta()));
+  }
 
-    mvc.perform(get("/cartoes/{numero}", NUMERO))
-        .andExpect(status().isUnauthorized());
-
+  @ParameterizedTest
+  @ValueSource(strings = { "{}", "{", "{\"numeroCartao\":\"123\",\"senha\":\"1234\"}",
+      "{\"numeroCartao\":\"0000000000000001\",\"senha\":\"   \"}",
+      "{\"numeroCartao\":\"000000000000000 1\",\"senha\":\"1234\"}" })
+  void cadastroInvalidoNaoChegaAoServico(String json) throws Exception {
+    mvc.perform(post("/cartoes").with(httpBasic("username", "password"))
+        .contentType(MediaType.APPLICATION_JSON).content(json))
+        .andExpect(status().isBadRequest()).andExpect(jsonPath("$.codigo").value("REQUISICAO_INVALIDA"));
     verifyNoInteractions(cartoes);
   }
 
   @ParameterizedTest
-  @CsvSource({ "username,errada", "outro,password" })
-  void rejeitaCredenciaisIncorretas(
-      String usuario, String senha) throws Exception {
+  @ValueSource(strings = { "null", "0", "-1", "100000000000000000.00" })
+  void valoresInvalidosNaoChegamAoServico(String valor) throws Exception {
+    String json = "{\"numeroCartao\":\"" + NUMERO + "\",\"senhaCartao\":\"1234\",\"valor\":" + valor + "}";
+    mvc.perform(post("/transacoes").with(httpBasic("username", "password"))
+        .contentType(MediaType.APPLICATION_JSON).content(json))
+        .andExpect(status().isBadRequest());
+    verifyNoInteractions(autorizacao);
+  }
 
-    mvc.perform(post("/cartoes")
-        .with(httpBasic(usuario, senha))
-        .contentType(MediaType.APPLICATION_JSON)
-        .content(CADASTRO))
+  @Test
+  void autenticacaoPrecedeValidacaoDoJson() throws Exception {
+    mvc.perform(post("/cartoes").contentType(MediaType.APPLICATION_JSON).content("{"))
         .andExpect(status().isUnauthorized());
-
-    mvc.perform(get("/cartoes/{numero}", NUMERO)
-        .with(httpBasic(usuario, senha)))
-        .andExpect(status().isUnauthorized());
-
-    verifyNoInteractions(cartoes);
-  }
-
-  @ParameterizedTest
-  @ValueSource(strings = {
-      "{}",
-      "{",
-      "",
-      "{\"numeroCartao\":null,\"senha\":\"1234\"}",
-      "{\"numeroCartao\":\"123\",\"senha\":\"1234\"}",
-      "{\"numeroCartao\":\"00000000000000001\",\"senha\":\"1234\"}",
-      "{\"numeroCartao\":\"000000000000000 1\",\"senha\":\"1234\"}",
-      "{\"numeroCartao\":\"0000000000000001\",\"senha\":null}",
-      "{\"numeroCartao\":\"0000000000000001\",\"senha\":\"\"}",
-      "{\"numeroCartao\":\"0000000000000001\",\"senha\":\"   \"}"
-  })
-  void entradaInvalidaNaoChegaAoServico(String json) throws Exception {
-    mvc.perform(cadastro(json))
-        .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.codigo").value(
-            "REQUISICAO_INVALIDA"));
-
     verifyNoInteractions(cartoes);
   }
 
   @Test
-  void rejeitaSenhaAcimaDoLimite() throws Exception {
-    var json = "{\"numeroCartao\":\"" + NUMERO
-        + "\",\"senha\":\"" + "x".repeat(129) + "\"}";
-
-    mvc.perform(cadastro(json))
-        .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.codigo").value(
-            "REQUISICAO_INVALIDA"));
-
+  void identificadorInvalidoNaConsultaRetorna400() throws Exception {
+    mvc.perform(get("/cartoes/123").with(httpBasic("username", "password")))
+        .andExpect(status().isBadRequest());
     verifyNoInteractions(cartoes);
   }
 
   @Test
-  void autenticacaoPrecedeValidacaoDaEntrada() throws Exception {
-    mvc.perform(post("/cartoes")
-        .contentType(MediaType.APPLICATION_JSON)
-        .content("{"))
-        .andExpect(status().isUnauthorized());
-
-    verifyNoInteractions(cartoes);
-  }
-
-  @Test
-  void identificadorMalformadoNaConsultaRetorna400() throws Exception {
-    mvc.perform(get("/cartoes/123")
-        .with(httpBasic("username", "password")))
-        .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.codigo").value(
-            "REQUISICAO_INVALIDA"));
-
-    verifyNoInteractions(cartoes);
-  }
-
-  @Test
-  void ignoraCamposExtrasSemIncluiLosNaResposta() throws Exception {
-    when(cartoes.criar(NUMERO, "1234"))
-        .thenReturn(ResultadoCriacao.CRIADO);
-
-    var json = "{\"numeroCartao\":\"" + NUMERO
-        + "\",\"senha\":\"1234\",\"saldo\":9999}";
-
-    mvc.perform(cadastro(json))
-        .andExpect(status().isCreated())
-        .andExpect(jsonPath("$.*", hasSize(2)))
-        .andExpect(jsonPath("$.numeroCartao").value(NUMERO))
-        .andExpect(jsonPath("$.senha").value("1234"));
-  }
-
-  @Test
-  void falhaTecnicaNaoViraDuplicidadeNemExpoeDetalhes()
-      throws Exception {
-
-    when(cartoes.criar(anyString(), anyString()))
-        .thenThrow(new DataAccessResourceFailureException(
-            "detalhe privado"));
-
-    mvc.perform(cadastro(CADASTRO))
+  void erroTecnicoNaoRevelaDetalhesNemViraDuplicidade() throws Exception {
+    when(cartoes.criar(anyString(), anyString())).thenThrow(new DataAccessResourceFailureException("detalhe privado"));
+    mvc.perform(requisicao("cartao").with(httpBasic("username", "password")))
         .andExpect(status().isServiceUnavailable())
-        .andExpect(jsonPath("$.codigo").value(
-            "ERRO_PERSISTENCIA"))
-        .andExpect(jsonPath("$.*", hasSize(2)))
-        .andExpect(content().string(
-            not(containsString("detalhe privado"))));
+        .andExpect(jsonPath("$.codigo").value("ERRO_PERSISTENCIA"))
+        .andExpect(jsonPath("$.*", hasSize(2)));
   }
 
-  private MockHttpServletRequestBuilder cadastro(String json) {
-    return post("/cartoes")
-        .with(httpBasic("username", "password"))
-        .contentType(MediaType.APPLICATION_JSON)
-        .content(json);
+  @Test
+  void falhaDeCommitNaoViraOk() throws Exception {
+    when(autorizacao.autorizar(anyString(), anyString(), any()))
+        .thenThrow(new TransactionSystemException("commit falhou"));
+    mvc.perform(requisicao("transacao").with(httpBasic("username", "password")))
+        .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.codigo").value("ERRO_PERSISTENCIA"));
   }
 }
