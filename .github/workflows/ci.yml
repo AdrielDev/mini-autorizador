@@ -1,0 +1,44 @@
+name: Build e testes
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Obter codigo
+        uses: actions/checkout@v5
+
+      - name: Configurar Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: pom.xml
+
+      - name: Verificar Docker
+        run: docker info
+
+      - name: Compilar e executar todos os testes
+        run: bash ./mvnw --batch-mode --no-transfer-progress clean verify
+
+      - name: Guardar relatorios e logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: relatorios-de-testes
+          retention-days: 7
+          path: |
+            target/surefire-reports/
+            target/failsafe-reports/
+            target/site/jacoco/
+            target/instance-*.log
