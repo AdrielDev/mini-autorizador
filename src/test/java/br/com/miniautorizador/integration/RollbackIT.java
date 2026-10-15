@@ -3,6 +3,7 @@ package br.com.miniautorizador.integration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -49,7 +50,9 @@ public class RollbackIT {
     mvc.perform(post("/transacoes").with(httpBasic("username", "password"))
         .contentType(MediaType.APPLICATION_JSON)
         .content("{\"numeroCartao\":\"" + numero + "\",\"senhaCartao\":\"1234\",\"valor\":10}"))
-        .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.codigo").value("ERRO_PERSISTENCIA"));
+        .andExpect(status().isServiceUnavailable())
+        .andExpect(header().exists("X-Request-ID"))
+        .andExpect(jsonPath("$.codigo").value("ERRO_PERSISTENCIA"));
     assertThat(cartoes.consultarSaldo(numero).orElseThrow()).isEqualByComparingTo("500.00");
   }
 

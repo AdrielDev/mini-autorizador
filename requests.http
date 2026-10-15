@@ -112,3 +112,11 @@ Content-Type: application/json
 ### Confirmar que as recusas não alteraram o saldo — 200 com 0.00
 GET {{baseUrl}}/cartoes/{{numeroCartao}}
 Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+
+### Saude da aplicacao
+GET {{baseUrl}}/actuator/health
+Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+
+### Metricas HTTP
+GET {{baseUrl}}/actuator/metrics/http.server.requests
+Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=

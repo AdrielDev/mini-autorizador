@@ -220,7 +220,8 @@ JDBC para persistência.
 
 ```mermaid
 flowchart LR
-    Cliente["Cliente HTTP"] --> Seguranca["Spring Security"]
+    Cliente["Cliente HTTP"] --> Requisicoes["RequestLoggingFilter"]
+    Requisicoes --> Seguranca["Spring Security"]
     Seguranca --> CartaoController["CartaoController"]
     Seguranca --> TransacaoController["TransacaoController"]
     CartaoController --> CartaoService["CartaoService"]
@@ -408,6 +409,26 @@ Os testes concorrentes comprovam os cenários exercitados;
 não substituem testes de carga nem estabelecem capacidade de produção.
 
 </details>
+
+## Observabilidade
+
+Cada requisição recebe um UUID gerado pelo servidor, devolvido no header
+`X-Request-ID` e associado aos logs durante seu processamento síncrono.
+Identificadores enviados pelo cliente não são reutilizados.
+
+Os logs registram método, rota parametrizada, status, duração e resultado
+da autorização, sem registrar corpos, credenciais ou dados do cartão.
+
+Os endpoints operacionais exigem o mesmo HTTP Basic da API:
+
+| Endpoint | Finalidade |
+|---|---|
+| `/actuator/health` | Saúde da aplicação e do banco, sem detalhes dos componentes |
+| `/actuator/metrics/jvm.memory.used` | Uso de memória da JVM |
+| `/actuator/metrics/http.server.requests` | Métricas das requisições HTTP |
+
+Essa identificação permite correlacionar os logs de uma requisição.
+Não representa tracing distribuído nem histórico financeiro.
 
 ## Suposições e limites
 
