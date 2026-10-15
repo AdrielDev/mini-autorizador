@@ -12,7 +12,7 @@
   <groupId>br.com.miniautorizador</groupId>
   <artifactId>mini-autorizador</artifactId>
   <version>0.0.1-SNAPSHOT</version>
-  <name>mini-automatizador</name>
+  <name>mini-autorizador</name>
   <description>API de cartões e autorização de transações</description>
   <url />
   <licenses>
