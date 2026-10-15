@@ -3,6 +3,10 @@
 @numeroInexistente = 0000000000000999
 @senha = 1234
 
+# Execute o roteiro na ordem, com numeroCartao ainda não cadastrado.
+# O cadastro inicial precisa retornar 201. Se retornar 422, escolha outro número.
+# numeroInexistente deve ser diferente e também não estar cadastrado.
+
 ### Criar cartão — 201 com um número ainda não cadastrado
 POST {{baseUrl}}/cartoes
 Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
@@ -59,6 +63,21 @@ Content-Type: application/json
 
 {"numeroCartao":"{{numeroCartao}}","senhaCartao":"{{senha}}","valor":4.85}
 
+### Conferir saldo após a primeira compra — 200 com 495.15
+GET {{baseUrl}}/cartoes/{{numeroCartao}}
+Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+
+### Comprar o saldo restante — 201 e texto OK
+POST {{baseUrl}}/transacoes
+Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+Content-Type: application/json
+
+{"numeroCartao":"{{numeroCartao}}","senhaCartao":"{{senha}}","valor":495.15}
+
+### Conferir saldo após a segunda compra — 200 com 0.00
+GET {{baseUrl}}/cartoes/{{numeroCartao}}
+Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+
 ### Saldo insuficiente — 422 e SALDO_INSUFICIENTE
 POST {{baseUrl}}/transacoes
 Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
@@ -73,6 +92,13 @@ Content-Type: application/json
 
 {"numeroCartao":"{{numeroCartao}}","senhaCartao":"errada","valor":1}
 
+### Compra com cartão inexistente — 422 e CARTAO_INEXISTENTE
+POST {{baseUrl}}/transacoes
+Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+Content-Type: application/json
+
+{"numeroCartao":"{{numeroInexistente}}","senhaCartao":"{{senha}}","valor":1}
+
 ### Não autenticado — 401
 GET {{baseUrl}}/cartoes/{{numeroCartao}}
 
@@ -82,3 +108,7 @@ Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
 Content-Type: application/json
 
 {"numeroCartao":"{{numeroCartao}}","senhaCartao":"{{senha}}","valor":10.001}
+
+### Confirmar que as recusas não alteraram o saldo — 200 com 0.00
+GET {{baseUrl}}/cartoes/{{numeroCartao}}
+Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
