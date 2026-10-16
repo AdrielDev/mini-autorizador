@@ -3,6 +3,7 @@ package br.com.miniautorizador.transacao.service;
 import br.com.miniautorizador.cartao.repository.CartaoRepository;
 
 import java.math.BigDecimal;
+import java.util.Optional;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -28,28 +29,23 @@ public class AutorizacaoService {
       BigDecimal valor) {
 
     var valorNormalizado = ValorTransacao.normalizar(valor);
-    var cartao = repository.buscar(numero);
 
-    if (cartao.isEmpty()) {
-      return ResultadoAutorizacao.CARTAO_INEXISTENTE;
-    }
+    return repository.buscar(numero)
+        .map(cartao -> Optional.of(cartao)
+            .filter(cadastrado -> encoder.matches(senha, cadastrado.senhaHash()))
+            .map(cadastrado -> debitar(numero, valorNormalizado))
+            .orElse(ResultadoAutorizacao.SENHA_INVALIDA))
+        .orElse(ResultadoAutorizacao.CARTAO_INEXISTENTE);
+  }
 
-    if (!encoder.matches(senha, cartao.get().senhaHash())) {
-      return ResultadoAutorizacao.SENHA_INVALIDA;
-    }
+  private ResultadoAutorizacao debitar(String numero, BigDecimal valor) {
+    int linhas = repository.debitarSeHouverSaldo(numero, valor);
 
-    int linhas = repository.debitarSeHouverSaldo(
-        numero, valorNormalizado);
-
-    if (linhas == 1) {
-      return ResultadoAutorizacao.APROVADA;
-    }
-
-    if (linhas == 0) {
-      return ResultadoAutorizacao.SALDO_INSUFICIENTE;
-    }
-
-    throw new IllegalStateException(
-        "Débito atingiu quantidade inesperada de cartões");
+    return switch (linhas) {
+      case 1 -> ResultadoAutorizacao.APROVADA;
+      case 0 -> ResultadoAutorizacao.SALDO_INSUFICIENTE;
+      default -> throw new IllegalStateException(
+          "Débito atingiu quantidade inesperada de cartões");
+    };
   }
 }
