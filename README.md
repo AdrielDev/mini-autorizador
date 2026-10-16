@@ -6,7 +6,9 @@ API REST para cadastrar cartões, consultar saldo e autorizar compras.
 Cada cartão começa com R$ 500,00. Uma compra aprovada debita o saldo;
 uma recusa não o altera.
 
-Implementado com Java 17, Spring Boot, Spring JDBC, Flyway e MySQL 5.7.
+**Stack:** Java 17, Spring Boot 4.1, Spring JDBC, Spring Security,
+Flyway e MySQL 5.7.
+
 O enunciado original está em [DESAFIO-VR.md](DESAFIO-VR.md).
 
 [Execução](#como-executar) · [API](#api) · [Testes](#testes) ·
@@ -18,42 +20,42 @@ O enunciado original está em [DESAFIO-VR.md](DESAFIO-VR.md).
 
 ### Pré-requisitos
 
-- JDK 17.
-- Docker com suporte a containers Linux e Docker Compose.
-- Porta 8080 disponível para a aplicação.
-- Porta 3306 disponível para o MySQL fornecido no desafio.
+| Requisito | Finalidade |
+|---|---|
+| JDK 17 | Compilar e executar a aplicação |
+| Docker com containers Linux | Executar o MySQL e os testes de integração |
+| Docker Compose | Iniciar o banco fornecido no desafio |
+| Portas 3306 e 8080 disponíveis | MySQL e API, respectivamente |
 
-O projeto inclui o Maven Wrapper; não é necessário instalar o Maven.
+O projeto inclui o Maven Wrapper. Não é necessário instalar o Maven.
 Execute os comandos na raiz do repositório.
 
-<details open>
-<summary><strong>Windows — PowerShell</strong></summary>
+### Windows com PowerShell
 
-Inicie o banco:
+**1. Inicie o banco:**
 
 ```powershell
 docker compose -f docker\docker-compose.yml up -d mysql
 ```
 
-Acompanhe a inicialização:
+**2. Confira se o MySQL está pronto:**
 
 ```powershell
 docker compose -f docker\docker-compose.yml logs mysql
 ```
 
 Aguarde a mensagem `ready for connections` do servidor na porta 3306.
-Depois, inicie a aplicação:
+
+**3. Inicie a API:**
 
 ```powershell
 .\mvnw.cmd spring-boot:run
 ```
 
-</details>
-
 <details>
-<summary><strong>Linux</strong></summary>
+<summary><strong>Comandos equivalentes no Linux</strong></summary>
 
-Inicie o banco e acompanhe os logs:
+Inicie o banco e consulte os logs:
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d mysql
@@ -68,34 +70,30 @@ Após o MySQL ficar pronto:
 
 </details>
 
-A API fica disponível em `http://localhost:8080`.
-O Flyway cria o schema automaticamente na inicialização.
+### Configuração local
 
-A conexão local utiliza o banco `miniautorizador` em `localhost:3306`,
-com usuário `root` e senha vazia, conforme o Compose do desafio.
-Essa configuração é destinada ao ambiente local.
+| Serviço | Endereço | Acesso |
+|---|---|---|
+| API | `http://localhost:8080` | HTTP Basic: `username` / `password` |
+| MySQL | `localhost:3306/miniautorizador` | Usuário `root`, senha vazia |
 
-### Autenticação
+O Flyway aplica as migrations na inicialização. Não é necessário criar
+a tabela manualmente.
 
-As operações de negócio e os endpoints do Actuator exigem HTTP Basic:
-
-| Credencial | Valor |
-|---|---|
-| Usuário | `username` |
-| Senha | `password` |
-
-Essas credenciais autenticam o acesso à API. A senha do cartão é definida
-no cadastro e verificada separadamente na autorização da compra.
+As credenciais do banco seguem o Compose fornecido no desafio.
+São configurações para desenvolvimento local, não para produção.
 
 ## API
 
-URL base: `http://localhost:8080`.
-
+Todas as operações exigem HTTP Basic.
 Os POSTs recebem `Content-Type: application/json`.
 
-| Método | Rota | Sucesso | Recusa ou ausência |
+A credencial da API autentica a chamada. A senha do cartão é verificada
+separadamente para autorizar a compra.
+
+| Método | Endpoint | Sucesso | Recusa ou ausência |
 |---|---|---|---|
-| `POST` | `/cartoes` | `201`, JSON com número e senha recebidos | `422`, JSON com os dados desta tentativa |
+| `POST` | `/cartoes` | `201`, JSON com os dados recebidos | `422`, cartão já cadastrado |
 | `GET` | `/cartoes/{numeroCartao}` | `200`, saldo numérico | `404`, sem corpo |
 | `POST` | `/transacoes` | `201`, texto `OK` | `422`, motivo em texto puro |
 
@@ -108,11 +106,11 @@ Os POSTs recebem `Content-Type: application/json`.
 }
 ```
 
-As respostas `201` e `422` contêm `numeroCartao` e `senha` da requisição.
-O cadastro duplicado não altera os dados existentes.
+As respostas `201` e `422` contêm `numeroCartao` e `senha` enviados
+naquela tentativa. Um cadastro duplicado não altera os dados existentes.
 
-O retorno da senha segue o contrato do desafio. Não representa
-recuperação da senha armazenada, que é persistida somente como hash.
+O retorno da senha segue o contrato do desafio. Não é uma recuperação
+da senha persistida, que fica armazenada somente como hash.
 
 ### Consultar saldo
 
@@ -139,23 +137,18 @@ O saldo é um número JSON, sem objeto ou aspas.
 ```
 
 Com entrada válida, a prioridade das verificações é:
+**existência do cartão, senha e saldo disponível**.
 
-1. Cartão existente.
-2. Senha correta.
-3. Saldo disponível.
-
-As respostas de negócio utilizam `text/plain`:
-
-| Status | Corpo |
+| Status | Corpo da resposta (`text/plain`) |
 |---|---|
 | `201` | `OK` |
 | `422` | `CARTAO_INEXISTENTE` |
 | `422` | `SENHA_INVALIDA` |
 | `422` | `SALDO_INSUFICIENTE` |
 
-### Autenticação e erros adicionais
+### Autenticação e falhas
 
-Credenciais ausentes ou incorretas resultam em `401`.
+Credenciais da API ausentes ou incorretas resultam em `401`.
 
 Entradas inválidas e falhas tratadas de persistência retornam JSON
 com os campos `codigo` e `mensagem`:
@@ -165,44 +158,50 @@ com os campos `codigo` e `mensagem`:
 | `400` | `REQUISICAO_INVALIDA` | `Verifique os campos enviados.` |
 | `503` | `ERRO_PERSISTENCIA` | `Não foi possível concluir a operação.` |
 
-Falhas técnicas não são convertidas em saldo insuficiente ou aprovação.
-Uma resposta inconclusiva não deve ser repetida automaticamente:
-a API não possui chave de idempotência.
+Falhas técnicas não são convertidas em aprovação ou saldo insuficiente.
 
 ### Roteiro manual
 
 O arquivo [requests.http](requests.http) contém as chamadas na ordem.
 
-Use um número de cartão ainda não cadastrado. O cadastro inicial precisa
-retornar `201`; caso retorne `422`, escolha outro número.
+Use um número de cartão ainda não cadastrado. Caso o primeiro cadastro
+retorne `422`, escolha outro número antes de seguir o roteiro.
 
-O roteiro verifica a sequência de saldo `500.00 → 495.15 → 0.00`,
-as recusas, a autenticação e os endpoints operacionais.
+| Verificação | Resultado esperado |
+|---|---|
+| Cadastro e consulta inicial | `201` no cadastro e saldo de `500.00` na consulta |
+| Cadastro duplicado | `422`, sem alterar o cartão |
+| Compra de `4.85` e consulta | `201` e saldo de `495.15` |
+| Compra de `495.15` e consulta | `201` e saldo de `0.00` |
+| Tentativas recusadas | Saldo permanece em `0.00` |
+
+O roteiro também inclui autenticação, entrada inválida e Actuator.
 
 ## Testes
 
-| Escopo | Windows — PowerShell | Linux | Docker |
+| Escopo | PowerShell | Linux | Docker |
 |---|---|---|---|
 | Unitários e controllers | `.\mvnw.cmd test` | `./mvnw test` | Não |
 | Suíte completa e cobertura | `.\mvnw.cmd clean verify` | `./mvnw clean verify` | Sim |
 
-Por padrão, a integração inicia um MySQL 5.7.44 descartável com
-Testcontainers. Não depende do Compose e não altera o banco usado
-na execução manual.
+Por padrão, Testcontainers inicia um MySQL 5.7.44 descartável.
+Os testes não dependem do Compose nem alteram o banco da execução manual.
 
-A suíte verifica:
+| Camada ou cenário | O que verifica |
+|---|---|
+| Unitários | Regras, precisão monetária, prioridade das recusas e propagação de falhas |
+| MVC | Contratos HTTP, autenticação e validação |
+| Integração com MySQL | Migrations, persistência, duplicidade, hash com salt e débito |
+| Rollback | Saldo preservado após falha provocada depois do UPDATE real |
+| Concorrência | Aprovações, recusas e saldo final sob chamadas simultâneas |
+| Duas instâncias | Dois processos Java disputando o saldo e persistência após reinício |
+| Observabilidade | Identificação de requisições, proteção dos logs e acesso ao Actuator |
 
-- Contratos HTTP, autenticação e validação.
-- Migração, cadastro, consulta, duplicidade e hash com salt.
-- Precisão monetária e preservação do saldo nas recusas.
-- Rollback após uma falha provocada depois do UPDATE real.
-- Compras e cadastros concorrentes.
-- Disputa pelo mesmo saldo entre dois processos Java.
-- Persistência após reiniciar uma instância.
-- Identificação das requisições, proteção dos logs e Actuator.
+Surefire executa os testes `*Test`. Failsafe executa os testes `*IT`
+no ciclo de integração, e JaCoCo gera a cobertura consolidada em `verify`.
 
-A suíte é sequencial. Os cenários concorrentes coordenam explicitamente
-suas próprias tarefas e verificam seus resultados.
+A suíte é sequencial. Os cenários concorrentes coordenam suas próprias
+tarefas e verificam os resultados de todas elas.
 
 ### Relatórios e CI
 
@@ -210,68 +209,68 @@ Após `clean verify`:
 
 | Caminho | Conteúdo |
 |---|---|
-| `target\surefire-reports` | Testes unitários e de controller |
+| `target\surefire-reports` | Testes unitários e MVC |
 | `target\failsafe-reports` | Testes de integração |
 | `target\site\jacoco\index.html` | Cobertura consolidada |
 | `target\instance-*.log` | Logs dos processos do teste com duas instâncias |
 
-O [workflow de CI](.github/workflows/ci.yml) executa `clean verify`
-em pushes e pull requests, com Java 17 e Docker. Relatórios e logs
-ficam no artefato `relatorios-de-testes` por sete dias.
-
-Os ensaios concorrentes comprovam os cenários exercitados.
-Não substituem testes de carga nem estabelecem capacidade de produção.
+O pipeline cobre integração contínua (CI), sem deploy automatizado (CD).
 
 ## Arquitetura
 
-A estrutura é em camadas, organizada por funcionalidade. Controllers
-tratam HTTP, serviços coordenam regras e o repositório concentra SQL.
-As dependências são recebidas por construtor.
+Aplicação única, em camadas e organizada por funcionalidade.
 
 ```mermaid
 flowchart LR
-    Cliente["Cliente HTTP"] --> Requisicoes["RequestLoggingFilter"]
-    Requisicoes --> Seguranca["Spring Security"]
-    Seguranca --> CartaoController["CartaoController"]
-    Seguranca --> TransacaoController["TransacaoController"]
+    Cliente["Cliente HTTP"] --> Filtro["RequestLoggingFilter"]
+    Filtro --> Seguranca["Spring Security"]
+    Seguranca --> Cartoes["CartaoController"]
+    Seguranca --> Compras["TransacaoController"]
     Seguranca --> Actuator["Actuator"]
-    CartaoController --> CartaoService["CartaoService"]
-    TransacaoController --> AutorizacaoService["AutorizacaoService"]
-    CartaoService --> Repositorio["JdbcCartaoRepository"]
-    AutorizacaoService --> Repositorio
+    Cartoes --> Cadastro["CartaoService"]
+    Compras --> Autorizacao["AutorizacaoService"]
+    Cadastro --> Repositorio["JdbcCartaoRepository"]
+    Autorizacao --> Repositorio
     Repositorio --> Banco[("MySQL 5.7")]
 ```
 
-Os serviços dependem de `CartaoRepository`, não diretamente do JDBC.
-A separação permite testar as regras isoladamente e verificar a
-implementação SQL com o banco real.
-
-| Pacote | Responsabilidade |
+| Componente | Responsabilidade |
 |---|---|
-| `config` | Segurança e configuração do encoder |
-| `cartao` | Cadastro, consulta e persistência dos cartões |
-| `transacao` | Validação e autorização das compras |
+| Controller | Entrada, saída e status HTTP |
+| Service | Regras de negócio e coordenação da operação |
+| Repository | SQL e mapeamento dos dados |
 | `shared` | Identificação de requisições, logs HTTP e tratamento de erros |
+| `config` | Segurança e configuração do encoder |
 
-### Persistência
+A separação aplica responsabilidade única (SRP). Os serviços dependem
+da interface `CartaoRepository`, não diretamente da implementação JDBC,
+aplicando inversão de dependência (DIP).
 
-O Flyway cria a tabela `cartoes`, utilizando InnoDB:
+A injeção por construtor deixa os colaboradores explícitos e permite
+testar as regras isoladamente.
 
-| Coluna | Tipo | Restrições |
+### Modelo de dados
+
+A tabela `cartoes` utiliza InnoDB:
+
+| Coluna | Tipo | Restrição |
 |---|---|---|
 | `numero_cartao` | `VARCHAR(16)` | Chave primária, não nulo |
 | `senha_hash` | `VARCHAR(255)` | Não nulo |
 | `saldo` | `DECIMAL(19, 2)` | Não nulo, sem DEFAULT |
 
-Não há tabela de compras: o enunciado exige persistir o cartão e
-atualizar seu saldo, mas dispensa o registro das transações.
+Não há tabela de compras. O enunciado exige persistir o cartão e
+atualizar o saldo.
 
 ## Decisões de implementação
 
 <details>
-<summary><strong>Concorrência — débito atômico no banco</strong></summary>
+<summary><strong>Concorrência: débito atômico no banco</strong></summary>
 
-A condição de saldo suficiente e o débito fazem parte do mesmo comando:
+Com R$ 10,00 de saldo e duas compras simultâneas de R$ 10,00,
+o resultado esperado é uma aprovação, uma recusa e saldo final zerado.
+
+A verificação do saldo e o débito acontecem no mesmo comando:
 
 ```sql
 UPDATE cartoes
@@ -280,168 +279,282 @@ WHERE numero_cartao = :numero
   AND saldo >= :valor;
 ```
 
-Após validar existência e senha, uma linha alterada significa aprovação;
-nenhuma significa saldo insuficiente. Contagem inesperada é falha técnica.
+Após validar existência e senha:
 
-| Alternativa | Avaliação |
+| Linhas alteradas | Resultado |
 |---|---|
-| UPDATE condicional, adotado | Expressa a regra diretamente no banco, sem calcular um novo saldo em Java |
-| Bloqueio pessimista explícito | `SELECT ... FOR UPDATE` anteciparia o bloqueio; seria avaliado se a decisão exigisse leituras e alterações coordenadas |
-| Controle otimista por versão | Exigiria versionamento e tratamento de conflitos, que não significam necessariamente saldo insuficiente |
+| `1` | Aprovação |
+| `0` | Saldo insuficiente |
+| Qualquer outro valor | Falha técnica |
 
-O UPDATE utiliza locks de linha do InnoDB. Não é uma operação sem
-bloqueios, mas dispensa adquiri-los explicitamente antes do débito.
+| Estratégia | Motivo da decisão |
+|---|---|
+| UPDATE condicional, adotado | A regra cabe no comando, sem calcular e sobrescrever o saldo em Java |
+| Bloqueio pessimista explícito | `SELECT ... FOR UPDATE` anteciparia o lock; seria útil para decisões com leituras e alterações coordenadas |
+| Controle otimista por versão | Acrescentaria versionamento e tratamento de conflitos; conflito de versão não equivale a saldo insuficiente |
 
-A autorização é delimitada por `@Transactional`. Falhas antes do commit
-podem provocar rollback, como demonstrado pelo teste com UPDATE real.
+O InnoDB utiliza locks de linha durante o UPDATE. A proteção funciona
+entre instâncias que compartilham o banco, sem sincronização na JVM.
 
-A garantia vale entre instâncias que compartilham o banco.
-Ela protege o saldo, mas não impede o reenvio da mesma compra.
-
-</details>
-
-<details>
-<summary><strong>Persistência e valores — SQL explícito e precisão monetária</strong></summary>
-
-JDBC mantém visíveis os três comandos necessários ao modelo atual,
-sem exigir o gerenciamento de entidades de um ORM.
-
-Se o domínio evoluísse para mais agregados, relacionamentos e operações
-de persistência, avaliaria Spring Data JDBC ou JPA pelo ganho de
-produtividade e custo do mapeamento. Mesmo com ORM, o débito continuaria
-exigindo uma operação concorrente segura. Atualizações em lote também
-exigiriam cuidado com o contexto de persistência.
-
-A chave primária garante unicidade nos cadastros concorrentes.
-Somente `DuplicateKeyException` é traduzida como duplicidade;
-outras falhas continuam sendo erros técnicos.
-
-`BigDecimal` e `DECIMAL(19, 2)` evitam cálculos com ponto flutuante.
-Valores com fração de centavo são rejeitados, não arredondados.
-
-O saldo inicial é uma regra de cadastro definida no código, sem DEFAULT
-no banco. Alterá-la afetaria novos cartões; modificar saldos existentes
-seria outra operação de negócio, não um efeito colateral da mudança.
+`@Transactional` delimita a autorização. O teste de rollback provoca
+uma falha após o UPDATE e verifica a preservação do saldo.
 
 </details>
 
 <details>
-<summary><strong>Segurança — contrato do exercício e limites de produção</strong></summary>
+<summary><strong>Persistência: por que MySQL e JDBC?</strong></summary>
 
-HTTP Basic foi mantido por exigência do desafio. Cada chamada apresenta
-credenciais; a aplicação não cria uma sessão de login.
+O modelo tem estrutura fixa, identificador único e uma regra monetária
+que pode ser expressa diretamente em SQL.
 
-A senha do cartão utiliza PBKDF2 com salt gerenciado pelo Spring Security,
-sem implementação própria de criptografia. A escolha aproveita a
-biblioteca existente e atende ao limite de senha adotado no contrato.
+| Escolha | Justificativa |
+|---|---|
+| MySQL com InnoDB | Débito condicional, unicidade e transações na infraestrutura fornecida |
+| Spring JDBC | Três comandos SQL para uma tabela, sem necessidade de gerenciar entidades de um ORM |
+| Chave primária | Protege cadastros concorrentes; uma consulta prévia, sozinha, não garante unicidade |
+| Tratamento específico de duplicidade | Somente `DuplicateKeyException` representa cartão já cadastrado |
+| `BigDecimal` e `DECIMAL` | Precisão monetária sem ponto flutuante ou arredondamento silencioso |
+| Saldo inicial no serviço | Regra de cadastro centralizada no código |
+| Flyway | Schema versionado e aplicado de forma reproduzível |
 
-Uma implantação real exigiria HTTPS, gestão e rotação de credenciais,
-limitação de tentativas e segregação do acesso operacional.
+MongoDB também permitiria um débito atômico em um único documento,
+com filtro de saldo e incremento negativo. Não foi descartado por
+falta de atomicidade.
 
-Também revisaria algoritmo e custo de verificação conforme as
-[recomendações da OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html),
-medindo o impacto sob carga e planejando a migração dos hashes.
-Argon2id seria uma opção a avaliar para um novo serviço.
+Para alterações atômicas em documentos separados, seria necessário
+avaliar transações multidocumento e uma topologia compatível, como
+replica set, ausente no Compose fornecido.
 
-Entre sistemas, OAuth2 Client Credentials poderia permitir tokens
-de curta duração e escopos de acesso. Token ou JWT, isoladamente,
-não torna uma API segura: HTTPS e validação adequada continuam necessários.
+Se o domínio crescer em relacionamentos e operações de persistência,
+avaliaria Spring Data JDBC ou JPA pelo ganho de produtividade e custo
+do mapeamento. ORM não elimina a necessidade de controle concorrente;
+atualizações em lote também exigem cuidado com o contexto de persistência.
 
-Essas medidas são evoluções possíveis, não recursos desta entrega.
+Alterar o saldo inicial afetaria novos cartões. Ajustar saldos existentes
+seria uma operação de negócio separada.
+
+MySQL 5.7 foi mantido conforme o desafio. Uma implantação real exigiria
+revisar versões suportadas e requisitos de segurança aplicáveis.
 
 </details>
 
 <details>
-<summary><strong>Opcional — fontes Java sem if</strong></summary>
+<summary><strong>Segurança: Basic Auth e hash de senha</strong></summary>
 
-A restrição foi aplicada aos fontes Java de produção e testes,
-sem instruções `if`, `break` ou `continue`. Dependências, código gerado
-e Maven Wrapper ficam fora desse escopo.
+| Tema | Implementação atual | Evolução para produção |
+|---|---|---|
+| Autenticação | HTTP Basic stateless, conforme o contrato | HTTPS, gestão e rotação de credenciais e limitação de tentativas |
+| Senha do cartão | PBKDF2 com salt pelo Spring Security | Revisar custo, medir latência e planejar migração dos hashes |
+| Acesso operacional | Actuator autenticado com a credencial da API | Segregar por perfil ou rede |
 
-Foram usados `Optional` para presença e ausência, `switch` para resultados
-finitos e polimorfismo na finalização dos logs. Nos testes, Awaitility
-trata a espera de inicialização e `AutoCloseable` organiza os processos.
+PBKDF2 aproveita uma implementação mantida pela biblioteca, sem
+criptografia própria. Para um novo serviço, avaliaria Argon2id conforme
+as [recomendações da OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html).
 
-Essa escolha atende ao exercício; não é uma recomendação de eliminar
+Entre sistemas, OAuth2 Client Credentials permitiria tokens de curta
+duração e escopos de acesso. A validação depende do formato adotado:
+JWT exige verificação de assinatura e claims; tokens opacos podem
+exigir introspecção no servidor de autorização.
+
+</details>
+
+<details>
+<summary><strong>Opcional: fontes Java sem if</strong></summary>
+
+Não há instruções `if`, `break` ou `continue` nos fontes Java de produção
+e testes. Dependências, código gerado e Maven Wrapper ficam fora do escopo.
+
+| Recurso | Aplicação |
+|---|---|
+| `Optional` | Presença, ausência e validação |
+| `switch` | Resultados finitos com significado definido |
+| Polimorfismo | Comportamento de conclusão ou falha dos logs |
+| Awaitility | Espera limitada pela inicialização das instâncias |
+| `AutoCloseable` | Encerramento dos processos com try-with-resources |
+
+A restrição atende ao exercício. Não é uma recomendação de eliminar
 todo `if` de aplicações Java.
 
 </details>
 
 ## Observabilidade
 
-Requisições processadas pelo filtro recebem um UUID no header
-`X-Request-ID`. O ID fica disponível no MDC durante o processamento
-síncrono e o contexto anterior é restaurado ao terminar.
+| Recurso | Comportamento |
+|---|---|
+| `X-Request-ID` | UUID gerado no servidor e devolvido na resposta |
+| MDC | Associa o ID aos logs durante o processamento síncrono e restaura o contexto ao terminar |
+| Log HTTP | Método, rota parametrizada, status e duração |
+| Log de autorização | Resultado da operação, sem dados do cartão |
+| Falha não tratada | Evento de erro sem inferir um status que o container ainda definirá |
 
-Os logs adicionados pela aplicação registram método, rota parametrizada,
-status, duração e resultado da autorização, sem corpos, credenciais,
-hashes ou números de cartão. Falhas não tratadas geram um evento sem
-inferir um status que ainda será definido pelo container.
+MDC é o contexto de diagnóstico usado pelo logger. O ID permite localizar
+os eventos da mesma requisição, mas não representa tracing distribuído.
+
+Os eventos adicionados pela aplicação não registram corpos, credenciais,
+hashes ou números de cartão. A rota de consulta é registrada pelo padrão
+`/cartoes/{numeroCartao}`, não pelo identificador concreto.
 
 Identificadores enviados pelo cliente não são reutilizados.
-Essa correlação é local; não representa tracing distribuído.
+Request IDs e números de cartão não são utilizados como tags de métricas.
+
+### Endpoints operacionais
+
+Todos exigem HTTP Basic:
 
 | Endpoint | Finalidade |
 |---|---|
 | `/actuator/health` | Saúde da aplicação e do banco, sem detalhes dos componentes |
 | `/actuator/metrics/jvm.memory.used` | Uso de memória da JVM |
-| `/actuator/metrics/http.server.requests` | Métricas HTTP, sem identificadores de requisição ou cartão como tags |
+| `/actuator/metrics/http.server.requests` | Contagem e tempos acumulados das requisições HTTP |
 
-Todos exigem o mesmo HTTP Basic da API. Em produção, o acesso operacional
-seria segregado por perfil ou rede.
-
-<details>
-<summary><strong>Diagnóstico inicial</strong></summary>
+### Diagnóstico inicial
 
 | Sintoma | Primeira investigação |
 |---|---|
 | `401` | Credenciais da API, não a senha do cartão |
-| `422` | Motivo da recusa e `X-Request-ID`; recusa de negócio não é indisponibilidade |
-| `503` | ID nos logs, tipo da falha de persistência, saúde do banco e conexões |
-| Latência elevada | Métricas HTTP, CPU, custo das senhas, pool e espera por locks |
-
-Sem idempotência, não é seguro repetir automaticamente uma compra
-após timeout ou resposta inconclusiva.
-
-</details>
+| `422` | Motivo da recusa; não confundir regra de negócio com indisponibilidade |
+| `503` | `X-Request-ID`, tipo da falha nos logs, conexão e saúde do banco |
+| Latência elevada | Tempo HTTP, CPU, custo das senhas, pool de conexões e espera por locks |
 
 ## Evolução
 
-Os itens abaixo são critérios de evolução, não funcionalidades implementadas.
+As propostas desta seção não estão implementadas. Sua adoção dependeria
+de requisitos, medições e capacidade operacional do time.
 
-| Gatilho | Decisão a avaliar |
+| Necessidade | Decisão a avaliar |
 |---|---|
-| Mais tráfego | Medir latência, CPU, pool e locks antes de aumentar instâncias; escalar a API não elimina contenção sobre o mesmo cartão |
-| Novas regras de bloqueio, reserva ou limites | Revisar predicados e fronteiras transacionais; considerar versão ou bloqueio explícito quando forem necessárias leituras coordenadas |
-| Retentativas da mesma compra | Chave de idempotência, com requisição, resultado e débito coordenados transacionalmente; definir validade e rejeitar reuso com dados diferentes |
-| Auditoria e reconciliação | Histórico financeiro e regras de acesso e retenção; logs operacionais não substituem esse registro |
-| Integrações assíncronas | Avaliar outbox transacional, broker e consumidores idempotentes, evitando separar a mudança de saldo da garantia de publicação |
-| Mais serviços em operação | Propagar contexto de rastreamento, centralizar métricas e criar alertas orientados por SLOs |
-| Mais consumidores do contrato | Avaliar OpenAPI, compatibilidade e versionamento; para as três operações atuais, README e roteiro HTTP atendem à reprodução |
+| Mais tráfego | Medir os gargalos antes de escalar; mais instâncias não eliminam contenção sobre o mesmo cartão |
+| Auditoria e reconciliação | Modelar histórico financeiro, acesso e retenção; logs operacionais não substituem esse registro |
+| Mais consumidores da API | Avaliar OpenAPI, compatibilidade e versionamento |
+| Operação em produção | Centralizar métricas e definir SLOs e alertas |
 
-Microserviços só seriam considerados diante de fronteiras de domínio
-e necessidades reais de implantação ou escala independente.
+SLOs são metas de nível de serviço, como disponibilidade e latência.
+Elas orientam monitoramento e resposta a incidentes.
 
-Para operar em cloud, também seriam necessários testes de capacidade,
-timeouts, encerramento gracioso, backup e recuperação. Readiness deveria
-considerar dependências críticas; liveness não deveria provocar reinícios
-por uma indisponibilidade externa.
+### Reenvio de compras e idempotência
 
-MySQL 5.7 foi mantido conforme o desafio. Uma implantação real exigiria
-revisar versões suportadas e requisitos de segurança e conformidade
-aplicáveis ao produto.
+**Comportamento atual:** cada POST válido é tratado como uma nova compra.
+Se a resposta se perder depois do commit, reenviar a chamada pode gerar
+outro débito.
+
+A proposta seria aceitar uma chave opcional criada pelo cliente para
+identificar a operação. O cliente reutilizaria a mesma chave nos reenvios.
+
+Exemplo de contrato futuro, ainda não suportado:
+
+```http
+POST /transacoes
+Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+Idempotency-Key: compra-001
+Content-Type: application/json
+
+{
+  "numeroCartao": "6549873025634501",
+  "senhaCartao": "1234",
+  "valor": 10.00
+}
+```
+
+Partindo de R$ 500,00:
+
+| Situação | Resposta proposta | Saldo |
+|---|---|---|
+| Primeiro envio com `compra-001` | `201 OK` | `490.00` |
+| Reenvio da mesma chave e dos mesmos dados | Reproduz o resultado anterior | `490.00` |
+| Mesma chave com outro valor ou cartão | `409 Conflict` | `490.00` |
+| Nova chave para outra compra de R$ 10,00 | `201 OK` | `480.00` |
+
+Sem o header, o comportamento atual seria preservado.
+
+Para funcionar entre instâncias, a reserva da chave, o resultado e o débito
+precisariam ser coordenados na mesma transação, com proteção de unicidade.
+Uma falha antes do commit reverteria os registros envolvidos; após o commit,
+o reenvio recuperaria o resultado persistido.
+
+O contrato também precisaria definir o escopo por consumidor, a validade
+da chave e a comparação segura dos dados, sem armazenar a senha original.
+
+Compras distintas podem ter o mesmo cartão, valor e horários próximos.
+A chave identifica a operação, não uma semelhança entre requisições.
+
+<details>
+<summary><strong>Mensageria: Kafka ou RabbitMQ</strong></summary>
+
+Fariam sentido para notificações e integrações após a compra, retirando
+processamento secundário do caminho da resposta HTTP.
+
+| Tecnologia | Cenário a avaliar |
+|---|---|
+| Kafka | Streams de eventos com retenção, replay e múltiplos consumidores |
+| RabbitMQ | Filas de trabalho com roteamento e distribuição de tarefas |
+
+A escolha dependeria de volume, ordenação, reprocessamento e operação.
+A autorização continuaria síncrona.
+
+Para evitar atualizar o saldo e perder a publicação do evento,
+avaliaria Transactional Outbox: gravar evento e débito na mesma transação
+e publicar depois.
+
+A entrega pode se repetir. O consumidor precisaria controlar eventos
+já processados para não executar novamente o mesmo efeito de negócio.
+
+</details>
+
+<details>
+<summary><strong>Resiliência em integrações HTTP</strong></summary>
+
+Em uma futura integração externa, como antifraude, avaliaria:
+
+| Mecanismo | Finalidade |
+|---|---|
+| Timeout | Limitar o tempo de espera por uma chamada |
+| Circuit Breaker | Suspender chamadas após falhas recorrentes e testar a recuperação da dependência |
+| Bulkhead | Limitar a concorrência para uma dependência, evitando esgotar os recursos da aplicação |
+| Retry com backoff | Repetir falhas transitórias com limite de tentativas e intervalos crescentes, somente em operações seguras para repetição |
+
+Não há integração HTTP externa que justifique esses componentes hoje.
+Circuit Breaker não resolve concorrência no saldo nem substitui timeout.
+
+Recusas de negócio não seriam contabilizadas como indisponibilidade.
+Um fallback nunca poderia aprovar sem validar as regras ou transformar
+falha técnica em saldo insuficiente.
+
+</details>
+
+<details>
+<summary><strong>Cloud, containers e microsserviços</strong></summary>
+
+Docker é utilizado no banco local e nos testes. A entrega não inclui
+imagem da aplicação, Kubernetes ou deploy automatizado.
+
+Para implantação, avaliaria imagem da API, limites de recursos,
+encerramento gracioso, backup, recuperação e probes:
+
+| Probe | Pergunta |
+|---|---|
+| Readiness | A instância está apta a receber tráfego? |
+| Liveness | O processo precisa ser reiniciado? |
+
+Dependências críticas podem influenciar readiness. Uma falha externa
+não deveria, por si só, causar reinícios por liveness.
+
+Microsserviços seriam considerados diante de fronteiras de domínio
+e necessidade de implantação ou escala independente. Crescimento
+de tráfego, sozinho, não justifica distribuir o sistema.
+
+</details>
 
 ## Suposições e limites
 
-- O número do cartão é textual e possui exatamente 16 dígitos ASCII.
-  `VARCHAR(16)` preserva zeros à esquerda. Não há validação de bandeira ou Luhn.
-- A senha não pode estar em branco e tem limite de 128 caracteres.
-- A compra deve ter valor positivo, caber em `DECIMAL(19, 2)` e ser
-  representável em centavos sem arredondamento: `10.000` é aceito;
-  `10.001` é rejeitado.
-- Campos JSON desconhecidos são ignorados. O cliente não define o saldo inicial.
-- Não há recarga, exclusão, alteração de senha ou histórico de compras.
-- Não há idempotência. Duas compras distintas podem ter o mesmo cartão,
-  valor e horários próximos; reenviar uma compra também pode gerar novo débito.
-- Credenciais fixas e banco sem senha atendem ao ambiente local do exercício.
-  A entrega não pretende reproduzir todos os controles de um autorizador real.
+| Item | Regra adotada |
+|---|---|
+| Número do cartão | String com exatamente 16 dígitos ASCII; `VARCHAR(16)` preserva zeros à esquerda |
+| Validação do cartão | Sem validação de bandeira ou algoritmo de Luhn |
+| Senha | Não pode estar em branco |
+| Valor da compra | Positivo, dentro de `DECIMAL(19, 2)` e representável em centavos sem arredondamento |
+| Casas decimais | `10.000` é aceito; `10.001` é rejeitado |
+| Campos JSON desconhecidos | Ignorados; o cliente não define o saldo inicial |
+| Operações fora do escopo | Recarga, exclusão e alteração de senha |
+
+A entrega cobre o enunciado. Não pretende reproduzir todos os controles
+operacionais e regulatórios de um autorizador em produção.
