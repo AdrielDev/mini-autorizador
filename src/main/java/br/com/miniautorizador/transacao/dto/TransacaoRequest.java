@@ -13,7 +13,7 @@ import java.math.BigDecimal;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record TransacaoRequest(
-    @NotBlank @Size(min = 16, max = 16) @Pattern(regexp = "(?U)\\S+") String numeroCartao,
+    @NotBlank @Size(min = 16, max = 16) @Pattern(regexp = "[0-9]{16}") String numeroCartao,
 
     @NotBlank @Size(max = 128) String senhaCartao,
 
@@ -21,6 +21,6 @@ public record TransacaoRequest(
 
   @Override
   public String toString() {
-    return "AutorizacaoRequest[dados omitidos]";
+    return "TransacaoRequest[dados omitidos]";
   }
 }

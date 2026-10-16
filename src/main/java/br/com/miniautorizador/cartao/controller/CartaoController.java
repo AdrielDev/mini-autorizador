@@ -45,7 +45,7 @@ public class CartaoController {
 
   @GetMapping(value = "/{numeroCartao}")
   public ResponseEntity<BigDecimal> consultarSaldo(
-      @PathVariable @Size(min = 16, max = 16) @Pattern(regexp = "(?U)\\S+") String numeroCartao) {
+      @PathVariable @Size(min = 16, max = 16) @Pattern(regexp = "[0-9]{16}") String numeroCartao) {
 
     return service.consultarSaldo(numeroCartao)
         .map(ResponseEntity::ok)

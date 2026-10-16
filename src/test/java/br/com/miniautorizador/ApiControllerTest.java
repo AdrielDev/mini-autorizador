@@ -165,4 +165,39 @@ class ApiControllerTest {
     mvc.perform(requisicao("transacao").with(httpBasic("username", "password")))
         .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.codigo").value("ERRO_PERSISTENCIA"));
   }
+
+  @ParameterizedTest
+  @ValueSource(strings = {
+      "123456789012345A",
+      "123456789012345/",
+      "123456789012345;"
+  })
+  void rejeitaNumeroNaoNumericoNaCriacaoENaCompra(String numero) throws Exception {
+    mvc.perform(post("/cartoes")
+        .with(httpBasic("username", "password"))
+        .contentType(MediaType.APPLICATION_JSON)
+        .content("{\"numeroCartao\":\"" + numero + "\",\"senha\":\"1234\"}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.codigo").value("REQUISICAO_INVALIDA"));
+
+    mvc.perform(post("/transacoes")
+        .with(httpBasic("username", "password"))
+        .contentType(MediaType.APPLICATION_JSON)
+        .content("{\"numeroCartao\":\"" + numero
+            + "\",\"senhaCartao\":\"1234\",\"valor\":10}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.codigo").value("REQUISICAO_INVALIDA"));
+
+    verifyNoInteractions(cartoes, autorizacao);
+  }
+
+  @Test
+  void consultaRejeitaNumeroNaoNumerico() throws Exception {
+    mvc.perform(get("/cartoes/123456789012345A")
+        .with(httpBasic("username", "password")))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.codigo").value("REQUISICAO_INVALIDA"));
+
+    verifyNoInteractions(cartoes, autorizacao);
+  }
 }
