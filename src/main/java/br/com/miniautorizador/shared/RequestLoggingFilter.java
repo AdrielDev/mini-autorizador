@@ -1,6 +1,7 @@
 package br.com.miniautorizador.shared;
 
 import java.io.IOException;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -22,8 +23,7 @@ import org.springframework.web.servlet.HandlerMapping;
 @Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class RequestLoggingFilter extends OncePerRequestFilter {
 
-  private static final Logger LOGGER =
-      LoggerFactory.getLogger(RequestLoggingFilter.class);
+  private static final Logger LOGGER = LoggerFactory.getLogger(RequestLoggingFilter.class);
 
   @Override
   protected void doFilterInternal(
@@ -34,38 +34,62 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
     String previousId = MDC.get("requestId");
     String requestId = UUID.randomUUID().toString();
     long started = System.nanoTime();
-    boolean completed = false;
+    Finalizacao finalizacao = Finalizacao.FALHOU;
 
     MDC.put("requestId", requestId);
 
     try {
       response.setHeader("X-Request-ID", requestId);
       filterChain.doFilter(request, response);
-      completed = true;
+      finalizacao = Finalizacao.CONCLUIDA;
     } finally {
       try {
-        Object matchedRoute =
-            request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
+        Object matchedRoute = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
         String route = matchedRoute == null ? "unmapped" : matchedRoute.toString();
-        long durationMs =
-            TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+        long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
 
-        if (completed) {
-          LOGGER.info(
-              "http_request_completed method={} route={} status={} durationMs={}",
-              request.getMethod(), route, response.getStatus(), durationMs);
-        } else {
-          LOGGER.error(
-              "http_request_failed method={} route={} durationMs={}",
-              request.getMethod(), route, durationMs);
-        }
+        finalizacao.registrar(request.getMethod(), route, response, durationMs);
       } finally {
-        if (previousId == null) {
-          MDC.remove("requestId");
-        } else {
-          MDC.put("requestId", previousId);
-        }
+        Optional.ofNullable(previousId)
+            .ifPresentOrElse(
+                id -> MDC.put("requestId", id),
+                () -> MDC.remove("requestId"));
       }
     }
+  }
+
+  private enum Finalizacao {
+    CONCLUIDA {
+      @Override
+      void registrar(
+          String method,
+          String route,
+          HttpServletResponse response,
+          long durationMs) {
+
+        LOGGER.info(
+            "http_request_completed method={} route={} status={} durationMs={}",
+            method, route, response.getStatus(), durationMs);
+      }
+    },
+    FALHOU {
+      @Override
+      void registrar(
+          String method,
+          String route,
+          HttpServletResponse response,
+          long durationMs) {
+
+        LOGGER.error(
+            "http_request_failed method={} route={} durationMs={}",
+            method, route, durationMs);
+      }
+    };
+
+    abstract void registrar(
+        String method,
+        String route,
+        HttpServletResponse response,
+        long durationMs);
   }
 }

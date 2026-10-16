@@ -232,8 +232,9 @@ class ApiIT {
       for (int i = 0; i < quantidade; i++) {
         futures.add(executor.submit(() -> {
           prontos.countDown();
-          if (!iniciar.await(10, TimeUnit.SECONDS))
-            throw new IllegalStateException("Disparo não liberado");
+          assertThat(iniciar.await(10, TimeUnit.SECONDS))
+              .as("Disparo não liberado")
+              .isTrue();
           return trabalho.call();
         }));
       }

@@ -1,9 +1,13 @@
 package br.com.miniautorizador.integration;
 
+import java.util.Optional;
+import java.util.function.Supplier;
+
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.testcontainers.mysql.MySQLContainer;
 
 final class MySqlDatabase {
+
   record Connection(String url, String username, String password) {
   }
 
@@ -26,21 +30,37 @@ final class MySqlDatabase {
   }
 
   private static Connection iniciar() {
-    String external = System.getProperty("it.jdbc.url");
-    if (external != null) {
-      if (!external.matches("jdbc:mysql://[^/]+/[A-Za-z0-9_]+_test(?:\\?.*)?")) {
-        throw new IllegalArgumentException("Integração externa exige um banco dedicado cujo nome termine em _test");
-      }
-      return new Connection(external, System.getProperty("it.jdbc.username", "root"),
-          System.getProperty("it.jdbc.password", ""));
-    }
+    return Optional.ofNullable(System.getProperty("it.jdbc.url"))
+        .map(MySqlDatabase::conexaoExterna)
+        .orElseGet(MySqlDatabase::iniciarContainer);
+  }
+
+  private static Connection conexaoExterna(String url) {
+    String urlValidada = Optional.of(url)
+        .filter(value -> value.matches("jdbc:mysql://[^/]+/[A-Za-z0-9_]+_test(?:\\?.*)?"))
+        .orElseThrow(() -> new IllegalArgumentException(
+            "Integração externa exige um banco dedicado cujo nome termine em _test"));
+
+    return new Connection(
+        urlValidada,
+        System.getProperty("it.jdbc.username", "root"),
+        System.getProperty("it.jdbc.password", ""));
+  }
+
+  private static Connection iniciarContainer() {
     var mysql = new MySQLContainer("mysql:5.7.44")
         .withDatabaseName("miniautorizador_test")
         .withUsername("test")
         .withPassword("test");
+
     mysql.start();
-    String separator = mysql.getJdbcUrl().contains("?") ? "&" : "?";
-    return new Connection(mysql.getJdbcUrl() + separator + "sslMode=DISABLED&serverTimezone=UTC",
-        mysql.getUsername(), mysql.getPassword());
+
+    String url = mysql.getJdbcUrl();
+    String separator = url.contains("?") ? "&" : "?";
+
+    return new Connection(
+        url + separator + "sslMode=DISABLED&serverTimezone=UTC",
+        mysql.getUsername(),
+        mysql.getPassword());
   }
 }
